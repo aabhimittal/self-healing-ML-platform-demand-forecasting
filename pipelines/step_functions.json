@@ -1,0 +1,138 @@
+{
+  "Comment": "Self-healing demand-forecasting state machine: detect -> diagnose (LLM) -> retrain -> validate -> deploy, with automatic rollback. Mirrors self_healing_ml.healing.orchestrator.",
+  "StartAt": "DetectDrift",
+  "States": {
+    "DetectDrift": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-detect-drift",
+      "Comment": "PSI + KS + confidence-decay over reference vs live windows",
+      "ResultPath": "$.drift",
+      "Next": "IsActionable"
+    },
+    "IsActionable": {
+      "Type": "Choice",
+      "Comment": "Only heal when the model's own reliability is affected",
+      "Choices": [
+        {
+          "Or": [
+            { "Variable": "$.drift.confidence_status", "StringEquals": "heal" },
+            {
+              "And": [
+                { "Variable": "$.drift.severity", "StringEquals": "alert" },
+                { "Not": { "Variable": "$.drift.confidence_status", "StringEquals": "healthy" } }
+              ]
+            }
+          ],
+          "Next": "DiagnoseWithLLM"
+        }
+      ],
+      "Default": "RenegotiateSLO"
+    },
+    "DiagnoseWithLLM": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-semantic-diagnose",
+      "Comment": "Claude explains WHY drift happened; returns cause + recommended_action",
+      "ResultPath": "$.diagnosis",
+      "Retry": [
+        { "ErrorEquals": ["States.TaskFailed"], "IntervalSeconds": 5, "MaxAttempts": 2, "BackoffRate": 2.0 }
+      ],
+      "Next": "RouteByCause"
+    },
+    "RouteByCause": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.diagnosis.recommended_action",
+          "StringEquals": "retrain_on_recent",
+          "Next": "Retrain"
+        },
+        {
+          "Variable": "$.diagnosis.recommended_action",
+          "StringEquals": "widen_intervals_no_retrain",
+          "Next": "WidenIntervals"
+        },
+        {
+          "Variable": "$.diagnosis.recommended_action",
+          "StringEquals": "infra_action_renegotiate_slo",
+          "Next": "RenegotiateSLO"
+        }
+      ],
+      "Default": "Retrain"
+    },
+    "Retrain": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-retrain",
+      "Comment": "Train challenger on recent data, register in MLflow",
+      "ResultPath": "$.challenger",
+      "Next": "Validate"
+    },
+    "Validate": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-validate",
+      "Comment": "Champion/challenger gate: challenger must beat incumbent MAE",
+      "ResultPath": "$.validation",
+      "Next": "ValidationGate"
+    },
+    "ValidationGate": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.validation.passes",
+          "BooleanEquals": true,
+          "Next": "Deploy"
+        }
+      ],
+      "Default": "KeepIncumbent"
+    },
+    "Deploy": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-deploy",
+      "Comment": "Promote challenger to production; archive incumbent",
+      "ResultPath": "$.deploy",
+      "Catch": [
+        { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Rollback" }
+      ],
+      "Next": "CanaryCheck"
+    },
+    "CanaryCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-canary",
+      "Comment": "Post-deploy live-traffic canary; fail -> rollback in minutes",
+      "ResultPath": "$.canary",
+      "Next": "CanaryGate"
+    },
+    "CanaryGate": {
+      "Type": "Choice",
+      "Choices": [
+        { "Variable": "$.canary.healthy", "BooleanEquals": true, "Next": "RenegotiateSLO" }
+      ],
+      "Default": "Rollback"
+    },
+    "Rollback": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-rollback",
+      "Comment": "Restore last known-good production model in a single call",
+      "ResultPath": "$.rollback",
+      "Next": "RenegotiateSLO"
+    },
+    "WidenIntervals": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-widen-intervals",
+      "Comment": "Promotion spike: widen prediction intervals, do not retrain",
+      "ResultPath": "$.widen",
+      "Next": "RenegotiateSLO"
+    },
+    "KeepIncumbent": {
+      "Type": "Pass",
+      "Comment": "Challenger failed the gate; keep the incumbent in production",
+      "Next": "RenegotiateSLO"
+    },
+    "RenegotiateSLO": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:shml-renegotiate-slo",
+      "Comment": "Auto-tune the p95 latency SLO from observed percentiles",
+      "ResultPath": "$.slo",
+      "End": true
+    }
+  }
+}

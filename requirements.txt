@@ -1,0 +1,6 @@
+# Core platform has NO runtime dependencies — it is pure Python standard library.
+# This keeps the self-healing loop, demo, and tests runnable anywhere with zero install.
+#
+# Optional extras:
+#   pip install -r requirements-llm.txt   # enable the Claude-based semantic drift explainer
+#   pip install pytest                     # to run the suite with pytest (a stdlib runner is also provided)

@@ -1,0 +1,4 @@
+# Enables the LLM-based semantic drift explainer (drift/semantic.py).
+# Without this (and an ANTHROPIC_API_KEY), the platform falls back to a
+# deterministic rule-based explainer automatically.
+anthropic>=0.40
