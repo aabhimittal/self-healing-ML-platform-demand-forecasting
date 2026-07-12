@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "self-healing-ml"
+version = "0.1.0"
+description = "Self-healing ML platform for demand forecasting with LLM-based semantic drift diagnosis"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Abhishek Mittal" }]
+keywords = ["mlops", "llmops", "aiops", "drift-detection", "demand-forecasting", "self-healing"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# The core platform is intentionally dependency-free (pure standard library).
+dependencies = []
+
+[project.optional-dependencies]
+# The LLM semantic-drift explainer. Without it, the platform uses its
+# deterministic rule-based fallback.
+llm = ["anthropic>=0.40"]
+# Optional developer tooling.
+dev = ["pytest>=7"]
+
+[project.scripts]
+self-healing-ml = "self_healing_ml.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/aabhimittal/self-healing-ml-platform-demand-forecasting"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

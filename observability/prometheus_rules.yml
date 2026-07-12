@@ -1,0 +1,61 @@
+# Prometheus alerting + recording rules for the self-healing ML platform.
+# Metric names match those emitted by self_healing_ml.observability.metrics
+# (see `python -m self_healing_ml.cli metrics` for a live exposition sample).
+groups:
+  - name: shml_drift
+    rules:
+      - alert: DemandForecastDriftAlert
+        expr: shml_drift_psi > 0.25
+        for: 10m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "Population stability index above alert threshold"
+          description: "PSI={{ $value }} for the demand forecaster; a semantic diagnosis should have been triggered."
+
+      - alert: ModelConfidenceDecay
+        expr: shml_confidence_decay > 0.55
+        for: 15m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Model confidence has decayed past the heal threshold"
+          description: "confidence_decay={{ $value }} — the self-healing loop should retrain and revalidate."
+
+  - name: shml_latency_slo
+    rules:
+      - record: shml:inference_latency_ms:p95
+        expr: histogram_quantile(0.95, sum(rate(shml_inference_latency_ms_bucket[5m])) by (le))
+
+      - alert: InferenceLatencySLOBreach
+        expr: shml:inference_latency_ms:p95 > shml_slo_p95_ms
+        for: 10m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "p95 inference latency exceeds the (auto-renegotiated) SLO"
+          description: "observed p95={{ $value }}ms > SLO target; auto-SLO renegotiation should relax or an infra action is required."
+
+  - name: shml_healing
+    rules:
+      - alert: FrequentRollbacks
+        expr: increase(shml_rollbacks_total[1h]) >= 2
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Multiple automatic rollbacks in the last hour"
+          description: "The self-healing loop rolled back >= 2 times — a challenger keeps regressing; page a human."
+
+      - alert: NoRetrainDespiteDrift
+        expr: (shml_drift_psi > 0.25) and (increase(shml_retrains_total[30m]) == 0) and (shml_confidence_decay > 0.55)
+        for: 30m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Sustained drift + confidence decay with no retrain"
+          description: "The healing loop may be stuck; investigate the orchestrator."

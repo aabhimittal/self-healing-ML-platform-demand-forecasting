@@ -1,0 +1,105 @@
+{
+  "__comment": "Grafana dashboard for the self-healing ML platform. Panels read the shml_* metrics scraped from self_healing_ml.observability.metrics.",
+  "title": "Self-Healing Demand Forecasting",
+  "uid": "shml-demand-forecast",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["mlops", "self-healing", "forecasting"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "model",
+        "type": "custom",
+        "query": "demand_forecaster",
+        "current": { "text": "demand_forecaster", "value": "demand_forecaster" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Drift — Population Stability Index",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 0.25 }
+            ]
+          }
+        }
+      },
+      "targets": [{ "expr": "shml_drift_psi", "legendFormat": "PSI" }]
+    },
+    {
+      "id": 2,
+      "title": "Model Confidence Decay",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.35 },
+              { "color": "red", "value": 0.55 }
+            ]
+          }
+        }
+      },
+      "targets": [{ "expr": "shml_confidence_decay", "legendFormat": "decay" }]
+    },
+    {
+      "id": 3,
+      "title": "Production Model Version",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "shml_production_version", "legendFormat": "v" }]
+    },
+    {
+      "id": 4,
+      "title": "Inference Latency p95 vs Auto-SLO",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(shml_inference_latency_ms_bucket[5m])) by (le))",
+          "legendFormat": "observed p95"
+        },
+        { "expr": "shml_slo_p95_ms", "legendFormat": "SLO target" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Semantic Drift Diagnoses by Cause",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "sum by (cause) (shml_drift_diagnoses_total)", "legendFormat": "{{cause}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Healing Actions",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        { "expr": "shml_retrains_total", "legendFormat": "retrains" },
+        { "expr": "shml_promotions_total", "legendFormat": "promotions" },
+        { "expr": "shml_rollbacks_total", "legendFormat": "rollbacks" },
+        { "expr": "shml_slo_renegotiations_total", "legendFormat": "SLO renegotiations" }
+      ]
+    }
+  ]
+}
